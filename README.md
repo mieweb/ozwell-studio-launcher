@@ -79,7 +79,7 @@ docker run --env-file .env -p 3000:3000 ozwell-studio-launcher
 | `AUTHORIZED_GROUPS` | — | Comma-separated groups allowed access; empty = any authenticated user |
 | `ALLOWED_PROXIES` | — | IPs/CIDRs whose auth headers are trusted (e.g. `10.0.0.5, 192.168.0.0/16`); empty = anywhere |
 | `MANAGER_URL` | `https://manager.os.mieweb.org` | Manager base URL |
-| `MANAGER_API_KEY` | — | Bearer API key for the manager |
+| `MANAGER_API_KEY` | — | Bearer API key for the manager. Must be an **admin** key: creates pass the authenticated user as the container's `username` (owner) |
 | `SITE_ID` | `1` | Manager site id containers are created in |
 | `TEMPLATE` | `ozwell-studio` | Container template |
 | `HOSTNAME_PREFIX` | `ozwell-studio` | Prefix for the container's hostname in the manager (not user-facing) |

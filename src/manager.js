@@ -100,13 +100,18 @@ async function externalDomainId() {
  * Create the container with the traditional pair of HTTP services:
  *   {hash}.{domain}         -> APP_PORT    (the app itself)
  *   {hash}-studio.{domain}  -> STUDIO_PORT (the studio UI)
+ *
+ * `username` sets the container's owner. The manager only honors it when
+ * the API key belongs to an admin; the container is owned by the key's
+ * user otherwise.
  */
-async function createContainer(hash) {
+async function createContainer(hash, username) {
   const domainId = await externalDomainId();
   return api(`/sites/${config.siteId}/containers`, {
     method: 'POST',
     body: JSON.stringify({
       hostname: containerHostname(hash),
+      username,
       template: config.template,
       services: [
         {
@@ -231,14 +236,14 @@ export function provisionStatus(hash) {
  * back-off, but a 'ready' entry is re-verified against the manager —
  * the container may have been deleted out-of-band since.
  */
-export function ensureProvision(hash, log = console) {
+export function ensureProvision(hash, username, log = console) {
   const existing = provisions.get(hash);
   if (existing && existing.state !== 'ready') return existing;
 
   const entry = { state: 'creating' };
   provisions.set(hash, entry);
 
-  provision(hash, log)
+  provision(hash, username, log)
     .then(() => {
       entry.state = 'ready';
       entry.url = containerUrl(hash);
@@ -257,7 +262,7 @@ export function ensureProvision(hash, log = console) {
   return entry;
 }
 
-async function provision(hash, log) {
+async function provision(hash, username, log) {
   const deadline = Date.now() + config.provisionTimeoutMs;
 
   let container = await findContainer(hash);
@@ -270,8 +275,8 @@ async function provision(hash, log) {
   }
 
   if (!container) {
-    log.info(`creating container ${containerHostname(hash)}`);
-    container = await createContainer(hash);
+    log.info(`creating container ${containerHostname(hash)} for ${username}`);
+    container = await createContainer(hash, username);
   }
 
   // GET returns `creationJobId`; the POST create response calls it `jobId`.

@@ -142,7 +142,8 @@ app.addHook('preHandler', async (request, reply) => {
     );
     return sendApp(reply, denied.code);
   }
-  request.userHash = userHash(String(request.headers[config.userHeader]));
+  request.username = String(request.headers[config.userHeader]).trim();
+  request.userHash = userHash(request.username);
 });
 
 /** Redirect straight to the container, or show the please-wait app. */
@@ -165,7 +166,7 @@ app.get('/', async (request, reply) => {
   }
 
   // Slow path: start provisioning and show the wait screen.
-  ensureProvision(hash, request.log);
+  ensureProvision(hash, request.username, request.log);
   return sendApp(reply);
 });
 
@@ -185,10 +186,11 @@ io.on('connection', (socket) => {
     socket.emit('status', { state: 'error', message: denied.message });
     return socket.disconnect(true);
   }
-  const hash = userHash(String(socket.handshake.headers[config.userHeader]));
+  const owner = String(socket.handshake.headers[config.userHeader]).trim();
+  const hash = userHash(owner);
 
   // Push the current state right away, then every change until disconnect.
-  socket.emit('status', ensureProvision(hash, app.log));
+  socket.emit('status', ensureProvision(hash, owner, app.log));
   const forward = (changedHash, entry) => {
     if (changedHash === hash) socket.emit('status', entry);
   };
