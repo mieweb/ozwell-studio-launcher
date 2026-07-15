@@ -1,0 +1,121 @@
+/*
+ * MIE / BlueHive design tokens from ui.mieweb.org
+ * (Nunito, primary #27aae1, Ozwell accent #0ba0e0).
+ */
+:root {
+  --mieweb-primary-500: #27aae1;
+  --mieweb-ozwell: #0ba0e0;
+  --mieweb-background: #ffffff;
+  --mieweb-foreground: #171717;
+  --mieweb-card: #ffffff;
+  --mieweb-muted: #f5f5f5;
+  --mieweb-muted-foreground: #494949;
+  --mieweb-border: #e5e7eb;
+  --mieweb-destructive-500: #dc2626;
+  --mieweb-font-sans: 'Nunito', ui-sans-serif, system-ui, sans-serif;
+  --mieweb-radius-lg: 0.75rem;
+  --mieweb-shadow-card: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --mieweb-background: #171717;
+    --mieweb-foreground: #fafafa;
+    --mieweb-card: #262626;
+    --mieweb-muted: #404040;
+    --mieweb-muted-foreground: #a1a1aa;
+    --mieweb-border: #404040;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--mieweb-font-sans);
+  background: var(--mieweb-background);
+  color: var(--mieweb-foreground);
+  -webkit-font-smoothing: antialiased;
+}
+
+.card {
+  background: var(--mieweb-card);
+  border: 1px solid var(--mieweb-border);
+  border-radius: var(--mieweb-radius-lg);
+  box-shadow: var(--mieweb-shadow-card);
+  padding: 3rem 2.5rem;
+  max-width: 26rem;
+  width: calc(100% - 2rem);
+  text-align: center;
+}
+
+h1 {
+  font-size: 1.375rem;
+  font-weight: 700;
+  margin: 0 0 0.5rem;
+}
+
+p {
+  color: var(--mieweb-muted-foreground);
+  margin: 0.25rem 0 0;
+  line-height: 1.5;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  font-weight: 700;
+  color: var(--mieweb-ozwell);
+  letter-spacing: 0.01em;
+  margin-bottom: 1.5rem;
+  font-size: 0.9375rem;
+  text-transform: uppercase;
+}
+
+.brand-logo {
+  width: 1.75rem;
+  height: 1.75rem;
+}
+
+.spinner {
+  width: 3rem;
+  height: 3rem;
+  margin: 0 auto 1.5rem;
+  border-radius: 9999px;
+  border: 4px solid var(--mieweb-muted);
+  border-top-color: var(--mieweb-primary-500);
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner { animation-duration: 2s; }
+}
+
+.error {
+  color: var(--mieweb-destructive-500);
+  font-weight: 600;
+}
+
+.dots::after {
+  content: '';
+  animation: dots 1.5s steps(4, end) infinite;
+}
+
+@keyframes dots {
+  0%  { content: ''; }
+  25% { content: '.'; }
+  50% { content: '..'; }
+  75% { content: '...'; }
+}
