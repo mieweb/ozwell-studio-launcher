@@ -6,6 +6,7 @@
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",
+    "test": "node --test",
     "build": "npm --prefix client install && npm --prefix client run build",
     "dev:client": "npm --prefix client run dev"
   },
