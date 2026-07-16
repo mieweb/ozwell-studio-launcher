@@ -43,8 +43,20 @@ Both the server (`Makefile`) and the client (`client/Makefile`) support:
 | --- | --- | --- |
 | `deps` | server + client dependencies | client dependencies |
 | `build` | builds the client bundle | production build to `dist/` |
-| `install` | full app to `$(DESTDIR)$(PREFIX)` (default `/opt/ozwell-studio-launcher`) with production `node_modules` | `dist/` to `$(DESTDIR)$(PREFIX)/client/dist` |
+| `install` | full app to `$(DESTDIR)$(PREFIX)` (default `/opt/ozwell-studio-launcher`) with production `node_modules`, plus the systemd unit to `$(DESTDIR)$(LIBDIR)/systemd/system` | `dist/` to `$(DESTDIR)$(PREFIX)/client/dist` |
 | `dev` | `node --watch` server + client rebuild on change | Vite dev server (HMR, `/socket.io` proxied to `:3000`) |
+
+To run under systemd, put the environment (see `.env.example`) in
+`/etc/default/ozwell-studio-launcher`, then:
+
+```sh
+sudo make install
+sudo systemctl enable --now ozwell-studio-launcher
+```
+
+The unit template (`contrib/ozwell-studio-launcher.service.in`, `@PREFIX@`
+substituted at install) runs the server as a transient unprivileged user
+(`DynamicUser`) with filesystem/kernel hardening.
 
 `.env` is loaded from the working directory via Node's native
 `process.loadEnvFile()`; real environment variables take precedence.

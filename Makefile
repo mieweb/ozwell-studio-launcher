@@ -6,6 +6,7 @@
 #   make dev       run the server with auto-reload + client rebuild on change
 
 PREFIX  ?= /opt/ozwell-studio-launcher
+LIBDIR  ?= /usr/lib
 DESTDIR ?=
 
 .PHONY: deps build install dev
@@ -25,6 +26,10 @@ install: build
 	cp -r src package.json package-lock.json $(DESTDIR)$(PREFIX)/
 	cd $(DESTDIR)$(PREFIX) && npm ci --omit=dev
 	$(MAKE) -C client install DESTDIR=$(DESTDIR) PREFIX=$(PREFIX)
+	mkdir -p $(DESTDIR)$(LIBDIR)/systemd/system
+	sed 's|@PREFIX@|$(PREFIX)|g' \
+	  contrib/ozwell-studio-launcher.service.in \
+	  > $(DESTDIR)$(LIBDIR)/systemd/system/ozwell-studio-launcher.service
 
 # Server restarts on source changes (node --watch); the client is rebuilt
 # on change by vite build --watch, so the served dist/ stays fresh.
