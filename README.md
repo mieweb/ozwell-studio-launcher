@@ -32,13 +32,19 @@ in-flight job.
 
 ```sh
 cp .env.example .env   # edit values
-npm ci                 # Node 24+, Fastify
-npm run build          # builds the React client (client/ -> client/dist)
+make deps              # Node 24+; installs server + client dependencies
+make build             # builds the React client (client/ -> client/dist)
 npm start
 ```
 
-For client work, `npm run dev:client` starts Vite's dev server with `/socket.io`
-proxied to a locally running launcher.
+Both the server (`Makefile`) and the client (`client/Makefile`) support:
+
+| Target | Server | Client |
+| --- | --- | --- |
+| `deps` | server + client dependencies | client dependencies |
+| `build` | builds the client bundle | production build to `dist/` |
+| `install` | full app to `$(DESTDIR)$(PREFIX)` (default `/opt/ozwell-studio-launcher`) with production `node_modules` | `dist/` to `$(DESTDIR)$(PREFIX)/client/dist` |
+| `dev` | `node --watch` server + client rebuild on change | Vite dev server (HMR, `/socket.io` proxied to `:3000`) |
 
 `.env` is loaded from the working directory via Node's native
 `process.loadEnvFile()`; real environment variables take precedence.
