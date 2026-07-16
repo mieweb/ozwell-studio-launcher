@@ -1,0 +1,5 @@
+/* Quick-start wiring documented in @mieweb/ui/init.css — nothing custom. */
+@import 'tailwindcss';
+@source "../node_modules/@mieweb/ui/dist";
+@import '@mieweb/ui/init.css';
+@import '@mieweb/ui/brands/ozwell.css' layer(theme);

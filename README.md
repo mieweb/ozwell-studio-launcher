@@ -33,8 +33,12 @@ in-flight job.
 ```sh
 cp .env.example .env   # edit values
 npm ci                 # Node 24+, Fastify
+npm run build          # builds the React client (client/ -> client/dist)
 npm start
 ```
+
+For client work, `npm run dev:client` starts Vite's dev server with `/socket.io`
+proxied to a locally running launcher.
 
 `.env` is loaded from the working directory via Node's native
 `process.loadEnvFile()`; real environment variables take precedence.
@@ -82,9 +86,9 @@ docker run --env-file .env -p 3000:3000 ozwell-studio-launcher
 
 ```
 src/
-  server.js       Fastify app, routes, socket.io wiring
-  manager.js      Manager API client + provisioning state machine
-  config.js       Environment variables
-  views/          Handlebars templates (layout, wait, error)
-  public/         Static assets (MIE-branded CSS, wait-page client JS)
+  server.js   Fastify app, routes, socket.io wiring
+  manager.js  Manager API client + provisioning state machine
+  config.js   Environment variables
+client/       Vite + React app built on @mieweb/ui (ui.mieweb.org components);
+              renders the wait/error screens, redirects on socket 'ready'
 ```

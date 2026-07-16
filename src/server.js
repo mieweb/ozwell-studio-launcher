@@ -6,16 +6,19 @@
  *
  *   1. Derives a stable hash from the authenticated-user header.
  *   2. Container already exists  -> 302 to it immediately.
- *   3. Container missing         -> branded please-wait page while the
- *      container is created via the manager API; the page listens on a
- *      socket.io channel and redirects itself when the create job finishes.
+ *   3. Container missing         -> the React app (client/) shows a branded
+ *      please-wait screen, listens on a socket.io channel, and redirects
+ *      itself when the create job finishes.
+ *
+ * All page states (waiting, errors, not-found) are rendered by the SPA;
+ * the server just picks the HTTP status code and pushes provisioning
+ * status over socket.io.
  */
+import { readFile } from 'node:fs/promises';
 import net from 'node:net';
 import path from 'node:path';
 import Fastify from 'fastify';
 import fastifyStatic from '@fastify/static';
-import fastifyView from '@fastify/view';
-import handlebars from 'handlebars';
 import { Server as SocketIOServer } from 'socket.io';
 import { config } from './config.js';
 import { logger } from './logger.js';
@@ -72,55 +75,77 @@ function isAuthorized(headers) {
   return requestGroups(headers).some((group) => config.authorizedGroups.includes(group));
 }
 
+/**
+ * Auth verdict shared by HTTP and socket.io. Returns null when the caller
+ * may proceed, or { code, message } describing the rejection.
+ */
+function denyReason(remoteAddress, headers) {
+  if (!isTrustedProxy(remoteAddress)) {
+    return {
+      code: 403,
+      message: 'Direct access is not allowed. Please go through the authentication proxy.',
+    };
+  }
+  if (!headers[config.userHeader]) {
+    return {
+      code: 401,
+      message: `Missing "${config.userHeader}" header. This service must be accessed through the authentication proxy.`,
+    };
+  }
+  if (!isAuthorized(headers)) {
+    return {
+      code: 403,
+      message: 'Your account is not in a group that is allowed to use Ozwell Studio.',
+    };
+  }
+  return null;
+}
+
 if (!config.managerApiKey) {
   app.log.warn('MANAGER_API_KEY is not set; manager API calls will fail');
 }
 
-await app.register(fastifyView, {
-  engine: { handlebars },
-  root: path.join(import.meta.dirname, 'views'),
-  layout: 'layout.hbs',
-});
+/** The built React app (client/) — hashed assets, favicons, index.html. */
+const clientDist = path.join(import.meta.dirname, '..', 'client', 'dist');
+await app.register(fastifyStatic, { root: clientDist });
 
-await app.register(fastifyStatic, {
-  root: path.join(import.meta.dirname, 'public'),
-  prefix: '/assets/',
-});
+/**
+ * The SPA shell, held in memory and served with no-store so error statuses
+ * are never entangled with conditional-request caching (a cached shell +
+ * ETag revalidation turns a 401 into a bodiless response browsers choke on).
+ */
+const appShell = await readFile(path.join(clientDist, 'index.html'), 'utf8');
+function sendApp(reply, code = 200) {
+  return reply
+    .code(code)
+    .header('Cache-Control', 'no-store')
+    .type('text/html; charset=utf-8')
+    .send(appShell);
+}
 
 /** Liveness probe (no auth). */
 app.get('/healthz', async () => 'ok\n');
 
-/** Pages require the username header from the proxy; assets do not. */
+/** Pages require the trusted proxy + username header; assets do not. */
 app.addHook('preHandler', async (request, reply) => {
-  if (request.url === '/healthz' || request.url.startsWith('/assets/')) return;
-  if (!isTrustedProxy(request.socket.remoteAddress)) {
-    request.log.warn({ remoteAddress: request.socket.remoteAddress }, 'request from untrusted peer');
-    return reply.code(403).view('error.hbs', {
-      title: 'Forbidden',
-      message: 'Direct access is not allowed. Please go through the authentication proxy.',
-    });
-  }
-  const username = request.headers[config.userHeader];
-  if (!username) {
-    return reply.code(401).view('error.hbs', {
-      title: 'Not authenticated',
-      message: `Missing "${config.userHeader}" header. This service must be accessed through the authentication proxy.`,
-    });
-  }
-  if (!isAuthorized(request.headers)) {
+  const openPath =
+    request.url === '/healthz' ||
+    request.url.startsWith('/assets/') ||
+    request.url.startsWith('/favicon');
+  if (openPath) return;
+
+  const denied = denyReason(request.socket.remoteAddress, request.headers);
+  if (denied) {
     request.log.warn(
-      { username, groups: requestGroups(request.headers) },
-      'user not in an authorized group'
+      { remoteAddress: request.socket.remoteAddress, reason: denied.message },
+      'request denied'
     );
-    return reply.code(403).view('error.hbs', {
-      title: 'Not authorized',
-      message: 'Your account is not in a group that is allowed to use Ozwell Studio.',
-    });
+    return sendApp(reply, denied.code);
   }
-  request.userHash = userHash(String(username));
+  request.userHash = userHash(String(request.headers[config.userHeader]));
 });
 
-/** Redirect straight to the container, or show the please-wait page. */
+/** Redirect straight to the container, or show the please-wait app. */
 app.get('/', async (request, reply) => {
   const hash = request.userHash;
 
@@ -132,51 +157,35 @@ app.get('/', async (request, reply) => {
       container = await findContainer(hash);
     } catch (error) {
       request.log.error(`container lookup failed: ${error.message}`);
-      return reply.code(502).view('error.hbs', {
-        title: 'Service unavailable',
-        message: 'Could not reach the container manager. Please try again shortly.',
-      });
+      return sendApp(reply, 502);
     }
     if (container && !['creating', 'failed'].includes(container.status)) {
       return reply.redirect(containerUrl(hash), 302);
     }
   }
 
-  // Slow path: start provisioning and show the wait page.
+  // Slow path: start provisioning and show the wait screen.
   ensureProvision(hash, request.log);
-  return reply.view('wait.hbs', { title: 'Setting up your workspace' });
+  return sendApp(reply);
 });
 
-app.setNotFoundHandler((request, reply) =>
-  reply.code(404).view('error.hbs', { title: 'Not found', message: 'This page does not exist.' })
-);
+app.setNotFoundHandler((request, reply) => sendApp(reply, 404));
 
 /**
- * Socket.io: the wait page connects here and gets pushed `status` events
+ * Socket.io: the wait screen connects here and gets pushed `status` events
  * ({ state: 'creating' | 'ready' | 'error', url?, message? }) until the
- * container is ready. Auth uses the same proxy header as HTTP requests.
+ * container is ready. Auth mirrors the HTTP hook.
  */
 await app.ready();
-const io = new SocketIOServer(app.server, { serveClient: true });
+const io = new SocketIOServer(app.server);
 
 io.on('connection', (socket) => {
-  if (!isTrustedProxy(socket.conn.remoteAddress)) {
-    socket.emit('status', { state: 'error', message: 'Direct access is not allowed.' });
+  const denied = denyReason(socket.conn.remoteAddress, socket.handshake.headers);
+  if (denied) {
+    socket.emit('status', { state: 'error', message: denied.message });
     return socket.disconnect(true);
   }
-  const username = socket.handshake.headers[config.userHeader];
-  if (!username) {
-    socket.emit('status', { state: 'error', message: 'Not authenticated.' });
-    return socket.disconnect(true);
-  }
-  if (!isAuthorized(socket.handshake.headers)) {
-    socket.emit('status', {
-      state: 'error',
-      message: 'Your account is not in a group that is allowed to use Ozwell Studio.',
-    });
-    return socket.disconnect(true);
-  }
-  const hash = userHash(String(username));
+  const hash = userHash(String(socket.handshake.headers[config.userHeader]));
 
   // Push the current state right away, then every change until disconnect.
   socket.emit('status', ensureProvision(hash, app.log));
