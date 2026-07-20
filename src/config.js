@@ -3,6 +3,8 @@
  * present). Every variable is documented in the README's Configuration
  * table (the canonical reference) and in .env.example.
  */
+import path from 'node:path';
+
 try {
   process.loadEnvFile(); // native Node .env support; real env vars still win
 } catch {
@@ -28,9 +30,25 @@ function csv(name) {
     .filter(Boolean);
 }
 
+/**
+ * Database connection URI. Defaults to a SQLite file in systemd's
+ * $STATE_DIRECTORY (StateDirectory= directive), falling back to the
+ * working directory. Any Sequelize URI works (postgres://, mariadb://,
+ * ...) as long as the driver is installed; only sqlite is bundled.
+ */
+function defaultSqlUri() {
+  return `sqlite:${path.join(process.env.STATE_DIRECTORY ?? process.cwd(), 'db.sqlite')}`;
+}
+
 export const config = {
   port: num('PORT', 3000),
   logLevel: process.env.LOG_LEVEL ?? 'info',
+
+  /** Persistence (pool state). */
+  sqlUri: process.env.SQL_URI ?? defaultSqlUri(),
+
+  /** Pre-built studios to keep ready; 0 disables pooling. */
+  poolSize: num('POOL_SIZE', 0),
 
   /** Forward-auth: identity headers and who we trust to send them. */
   userHeader: (process.env.USER_HEADER ?? 'remote-user').toLowerCase(),

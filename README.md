@@ -24,6 +24,28 @@ Ozwell Studio container.
    the new studio opens automatically when ready.
 5. Clicking an existing studio opens it directly.
 
+### Warm pool (optional)
+
+With `POOL_SIZE > 0` the launcher keeps that many studios pre-built and
+waiting (owned by the API key's user, so they never show up in anyone's
+list). **New Studio** then claims the oldest pooled studio (FIFO): its
+owner is reassigned to the requesting user in the manager *before* the
+user is redirected to it, one reachability probe confirms it still
+serves, and the pool is topped back up in the background. When the pool
+is empty, requests fall back to a fresh create.
+
+Pool state (just the hostnames) is stored in a Sequelize-backed database
+(`SQL_URI`) so it survives restarts; everything else about a container is
+always queried from the manager. Migrations run at startup — serialized
+with an advisory lock (postgres `pg_advisory_xact_lock`, mysql/mariadb
+`GET_LOCK`) when several instances share a server database; SQLite needs
+none. SQLite uses the maintained [`@vscode/sqlite3`](https://www.npmjs.com/package/@vscode/sqlite3)
+driver instead of the unmaintained `sqlite3`, and
+`patches/sequelize+*.patch` (applied by `patch-package` on install)
+backports [sequelize#17583](https://github.com/sequelize/sequelize/pull/17583)
+to v6 so multi-column unique indexes don't get baked onto individual
+columns during SQLite table rebuilds.
+
 ## Running
 
 ```sh
@@ -93,6 +115,8 @@ docker run --env-file .env -p 3000:3000 ozwell-studio-launcher
 | `STUDIO_PATH` | `/studio/` | Path users are sent to on the studio service |
 | `POLL_INTERVAL_MS` | `3000` | Create-job poll interval |
 | `PROVISION_TIMEOUT_MS` | `600000` | Give up on provisioning after this long |
+| `POOL_SIZE` | `0` | Pre-built studios to keep ready; `0` disables the warm pool |
+| `SQL_URI` | `sqlite:$STATE_DIRECTORY/db.sqlite`, else `sqlite:<cwd>/db.sqlite` | Pool-state database (any Sequelize URI; only the sqlite driver is bundled) |
 
 ## Endpoints
 
@@ -107,17 +131,25 @@ docker run --env-file .env -p 3000:3000 ozwell-studio-launcher
 
 ```
 src/
-  server.js        Bootstrap: plugins, auth hook, SPA shell, listen
+  server.js        Bootstrap: plugins, auth hook, migrations, SPA shell, listen
   auth.js          Forward-auth trust (proxy allow-list, groups, open paths)
   socket.js        Socket.io wiring (provisioning status pushes)
   studios/         The studios feature
     routes.js        HTTP surface (routes + request/response shaping)
     service.js       Business logic: listing, starting creates
     naming.js        Id/hostname/URL helpers
-    provisioner.js   Background create workflow (job poll, reachability)
+    pool.js          Warm-pool persistence (FIFO hostname queue)
+    provisioner.js   Background workflows: fresh creates, pool claims,
+                     pool replenishment (job poll, reachability)
+  db/
+    index.js         Sequelize instance (SQL_URI); loads and re-exports models/
+    models/          One file per model (Sequelize's standard layout)
+    migrate.js       Startup migrator (advisory-locked on server databases)
+    migrations/      Forward-only migration files (YYYYMMDDHHmmSS-*.js)
   clients/
     manager.js       Manager API client (gateway, not a repository)
   config.js        Environment variables (validated at load)
+patches/      patch-package patches applied on npm install
 test/         node:test suites for the pure seams (auth, naming, merge,
               Docker-ref normalization, config validation)
 client/       Vite + React app built on @mieweb/ui (ui.mieweb.org components);
@@ -137,4 +169,5 @@ the client.
 Known constraint: in-flight provisioning state lives in memory
 (`provisioner.js`), so the launcher is single-instance; a restart during
 a create loses its progress events (the manager still owns the container
-itself).
+itself). The warm pool, by contrast, is database-backed and survives
+restarts; its FIFO take is safe against concurrent claimers.

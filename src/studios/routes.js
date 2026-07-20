@@ -15,7 +15,7 @@ export default async function routes(app) {
 
   /** POST /api/v1/studios — start a create; progress arrives via socket.io. */
   app.post('/', async (request, reply) => {
-    const { hostname, status, url } = service.create(request.username);
+    const { hostname, status, url } = await service.create(request.username);
     return reply.code(201).send({ studio: { hostname, status, url } });
   });
 }

@@ -1,14 +1,27 @@
 /**
- * Background provisioning of studio containers: create the container in
- * the manager, follow its create job, then wait for the load balancer to
- * actually serve the page. Emits `status` events as creates finish.
+ * Background provisioning of studio containers, and the warm pool that
+ * makes it fast. Two ways a user gets a studio:
+ *
+ *   - claim: when POOL_SIZE > 0 and the pool has a pre-built studio, it
+ *     is taken FIFO, its owner is reassigned to the user in the manager
+ *     (before the user is redirected to it), and one quick reachability
+ *     probe confirms it still serves.
+ *   - fresh create: otherwise, create the container in the manager,
+ *     follow its create job, then wait for the load balancer to actually
+ *     serve the page.
+ *
+ * Either way, `status` events are emitted as work finishes, and the pool
+ * is topped back up to POOL_SIZE in the background (pool containers are
+ * created without a username, so they belong to the API key's user until
+ * claimed — which also keeps them out of users' listings).
  */
 import { EventEmitter } from 'node:events';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { config } from '../config.js';
 import { logger } from '../logger.js';
 import * as manager from '../clients/manager.js';
-import { newId, hostnameFor, studioUrl } from './naming.js';
+import * as pool from './pool.js';
+import { newId, hostnameFor, studioUrl, studioUrlFrom } from './naming.js';
 
 /**
  * In-flight provisioning state, keyed by container hostname. Each entry is
@@ -28,43 +41,143 @@ function inflight(username) {
   return [...provisions.values()].filter((p) => p.owner === username);
 }
 
-/** Kick off creation of a brand-new studio container for `username`. */
-function start(username) {
-  const id = newId();
-  const hostname = hostnameFor(id);
-  const entry = { hostname, owner: username, status: 'creating', url: studioUrl(id) };
-  provisions.set(hostname, entry);
+/**
+ * Get `username` a studio: claim one from the pool when available,
+ * otherwise create a fresh one. Returns the in-flight entry; progress is
+ * emitted on `events`.
+ */
+async function start(username) {
+  const pooled = config.poolSize > 0 ? await takePooled() : null;
+  const entry = pooled ? claim(pooled, username) : createFresh(username);
+  replenish(); // fire and forget; keeps the pool at POOL_SIZE
+  return entry;
+}
 
-  // One logger per provisioning job: the workflow outlives the request
-  // that started it, so it gets its own child rather than a request log.
-  const log = logger.child({ provision: hostname, username });
+/**
+ * Take pool entries FIFO until one still exists in the manager (rows can
+ * go stale if a container is deleted out-of-band). Returns the container
+ * record, or null when the pool is empty. On a manager error the row is
+ * returned to the pool — the container is fine, we just couldn't ask.
+ */
+async function takePooled() {
+  for (;;) {
+    const hostname = await pool.take();
+    if (!hostname) return null;
+    let container;
+    try {
+      container = await manager.getContainerByHostname(hostname);
+    } catch (error) {
+      await pool.add(hostname).catch(() => {});
+      throw error;
+    }
+    if (container) return container;
+    logger.warn(`pool studio ${hostname} is gone from the manager; dropping it`);
+  }
+}
 
-  provision(id, username, entry, log)
+/** Track a background workflow as an in-flight entry, emitting at the end. */
+function track(entry, log, workflow) {
+  provisions.set(entry.hostname, entry);
+  workflow
     .then(() => {
       entry.status = 'running';
     })
     .catch((error) => {
-      log.error(`provision ${hostname}: ${error.message}`);
+      log.error(`provision ${entry.hostname}: ${error.message}`);
       entry.status = 'failed';
       entry.message = error.message;
     })
     .finally(() => {
       events.emit('status', entry);
-      setTimeout(() => provisions.delete(hostname), 60_000).unref();
+      setTimeout(() => provisions.delete(entry.hostname), 60_000).unref();
     });
-
   return entry;
 }
 
-/** The full background workflow for one create. */
-async function provision(id, username, entry, log) {
-  const deadline = Date.now() + config.provisionTimeoutMs;
+/** Hand a pre-built pooled studio to `username`. */
+function claim(container, username) {
+  const entry = {
+    hostname: container.hostname,
+    owner: username,
+    status: 'creating',
+    url: studioUrlFrom(container),
+  };
+  // One logger per job: the workflow outlives the request that started it.
+  const log = logger.child({ provision: entry.hostname, username, pooled: true });
+  return track(entry, log, claimWorkflow(container, username, entry, log));
+}
+
+/** Reassign ownership, then confirm the studio still serves. */
+async function claimWorkflow(container, username, entry, log) {
+  log.info(`assigning pooled studio ${container.hostname} to ${username}`);
+  try {
+    // Reassign the owner before the user is redirected to the studio.
+    await manager.updateContainer(container.id, { username });
+  } catch (error) {
+    // Ownership unchanged, so the studio is still good: back in the pool.
+    await pool.add(container.hostname).catch(() => {});
+    throw error;
+  }
+  await waitForReachable(entry.url, Date.now() + config.provisionTimeoutMs, log);
+}
+
+/** Kick off creation of a brand-new studio container for `username`. */
+function createFresh(username) {
+  const id = newId();
+  const entry = {
+    hostname: hostnameFor(id),
+    owner: username,
+    status: 'creating',
+    url: studioUrl(id),
+  };
+  const log = logger.child({ provision: entry.hostname, username });
   log.info(`creating container ${entry.hostname} for ${username}`);
+  return track(entry, log, provisionContainer(id, username, entry.url, log));
+}
+
+/**
+ * The full create workflow: enqueue the container, follow its create job,
+ * then wait until the studio URL actually serves.
+ */
+async function provisionContainer(id, username, url, log) {
+  const deadline = Date.now() + config.provisionTimeoutMs;
   const created = await createContainer(id, username);
   const jobId = created?.jobId ?? created?.creationJobId;
   if (jobId != null) await waitForJob(jobId, deadline);
   // The job finishing isn't enough; wait for the URL to actually serve.
-  await waitForReachable(entry.url, deadline, log);
+  await waitForReachable(url, deadline, log);
+}
+
+/**
+ * Top the pool up to POOL_SIZE, one studio at a time. Runs at startup and
+ * after every claim/create; overlapping calls coalesce. A failed create
+ * logs and retries later rather than looping hot.
+ */
+let replenishing = false;
+function replenish() {
+  if (config.poolSize <= 0 || replenishing) return;
+  replenishing = true;
+  const log = logger.child({ module: 'pool' });
+  replenishLoop(log)
+    .catch((error) => {
+      log.error(`pool replenish: ${error.message}; retrying in 60s`);
+      setTimeout(replenish, 60_000).unref();
+    })
+    .finally(() => {
+      replenishing = false;
+    });
+}
+
+async function replenishLoop(log) {
+  while ((await pool.count()) < config.poolSize) {
+    const id = newId();
+    const hostname = hostnameFor(id);
+    log.info(`provisioning pool studio ${hostname}`);
+    // No username: pool containers belong to the API key's user until claimed.
+    await provisionContainer(id, undefined, studioUrl(id), log);
+    await pool.add(hostname);
+    log.info(`pool studio ${hostname} ready`);
+  }
 }
 
 /**
@@ -163,4 +276,4 @@ async function waitForReachable(url, deadline, log) {
   throw new Error('Timed out waiting for the workspace to become reachable.');
 }
 
-export default { start, inflight, events };
+export default { start, inflight, events, replenish };

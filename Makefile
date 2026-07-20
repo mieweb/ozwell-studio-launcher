@@ -27,7 +27,7 @@ test: node_modules
 
 install: build
 	mkdir -p $(DESTDIR)$(PREFIX)
-	cp -r src package.json package-lock.json $(DESTDIR)$(PREFIX)/
+	cp -r src patches package.json package-lock.json $(DESTDIR)$(PREFIX)/
 	cd $(DESTDIR)$(PREFIX) && npm ci --omit=dev
 	$(MAKE) -C client install DESTDIR=$(DESTDIR) PREFIX=$(PREFIX)
 	mkdir -p $(DESTDIR)$(LIBDIR)/systemd/system

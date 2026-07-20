@@ -52,9 +52,19 @@ async function list(username) {
   return mergeStudios(rows, provisions);
 }
 
-/** Start creating a new studio; progress is emitted on `events`. */
+/**
+ * Get the user a new studio — claimed from the warm pool when one is
+ * ready, freshly created otherwise. Resolves to the in-flight entry;
+ * progress is emitted on `events`.
+ */
 function create(username) {
   return provisioner.start(username);
 }
 
-export default { list, create, events: provisioner.events };
+export default {
+  list,
+  create,
+  events: provisioner.events,
+  /** Top the warm pool up to POOL_SIZE (no-op when pooling is disabled). */
+  topUpPool: provisioner.replenish,
+};

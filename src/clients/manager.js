@@ -96,11 +96,30 @@ export async function listContainers(username) {
   return rows ?? [];
 }
 
+/** The container with the given hostname, or null when it does not exist. */
+export async function getContainerByHostname(hostname) {
+  const params = new URLSearchParams({ hostname });
+  const rows = await api(`/sites/${config.siteId}/containers?${params}`);
+  return rows?.[0] ?? null;
+}
+
 /** Enqueue a container create. Returns `{ containerId, jobId, hostname, status }`. */
 export async function createContainer(payload) {
   return api(`/sites/${config.siteId}/containers`, {
     method: 'POST',
     body: JSON.stringify(payload),
+  });
+}
+
+/**
+ * Update a container. Used to reassign ownership (`{ username }`) when a
+ * pooled studio is claimed; like creates, changing the owner requires an
+ * admin API key.
+ */
+export async function updateContainer(containerId, fields) {
+  return api(`/sites/${config.siteId}/containers/${containerId}`, {
+    method: 'PUT',
+    body: JSON.stringify(fields),
   });
 }
 

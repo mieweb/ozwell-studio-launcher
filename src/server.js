@@ -21,6 +21,9 @@ import fastifyStatic from '@fastify/static';
 import { config } from './config.js';
 import { logger } from './logger.js';
 import { authenticate, isOpenPath } from './auth.js';
+import { sequelize } from './db/index.js';
+import { migrate } from './db/migrate.js';
+import studios from './studios/service.js';
 import studioRoutes from './studios/routes.js';
 import { attachSocket } from './socket.js';
 
@@ -29,6 +32,9 @@ const app = Fastify({ loggerInstance: logger });
 if (!config.managerApiKey) {
   app.log.warn('MANAGER_API_KEY is not set; manager API calls will fail');
 }
+
+/** Bring the database up to date before serving anything that uses it. */
+await migrate(sequelize);
 
 /** The built React app (client/) — hashed assets, favicons, index.html. */
 const clientDist = path.join(import.meta.dirname, '..', 'client', 'dist');
@@ -84,3 +90,6 @@ await app.ready();
 attachSocket(app.server);
 
 await app.listen({ port: config.port, host: '0.0.0.0' });
+
+// Pre-build studios up to POOL_SIZE in the background.
+studios.topUpPool();

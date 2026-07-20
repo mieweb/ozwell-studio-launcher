@@ -5,6 +5,7 @@
   "type": "module",
   "main": "src/server.js",
   "scripts": {
+    "postinstall": "patch-package",
     "start": "node src/server.js",
     "test": "node --test",
     "build": "npm --prefix client install && npm --prefix client run build",
@@ -15,8 +16,11 @@
   },
   "dependencies": {
     "@fastify/static": "^10.1.0",
+    "@vscode/sqlite3": "^5.1.14-vscode",
     "fastify": "^5.0.0",
+    "patch-package": "^8.0.1",
     "pino": "^10.3.1",
+    "sequelize": "^6.37.8",
     "socket.io": "^4.8.3"
   },
   "license": "MIT"

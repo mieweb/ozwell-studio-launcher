@@ -10,6 +10,8 @@ DynamicUser=yes
 EnvironmentFile=-/etc/default/ozwell-studio-launcher
 Environment=NODE_ENV=production
 WorkingDirectory=@PREFIX@
+# Persistent pool state: $STATE_DIRECTORY (default SQL_URI puts db.sqlite here)
+StateDirectory=ozwell-studio-launcher
 ExecStart=/usr/bin/node @PREFIX@/src/server.js
 Restart=on-failure
 RestartSec=2
