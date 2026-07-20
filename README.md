@@ -28,7 +28,9 @@ Ozwell Studio container.
 
 With `POOL_SIZE > 0` the launcher keeps that many studios pre-built and
 waiting (owned by the API key's user, so they never show up in anyone's
-list). **New Studio** then claims the oldest pooled studio (FIFO): its
+list — except the key user's own dashboard, where warm-pool stock is
+marked with a `pooled` badge to distinguish it from their personal
+studios). **New Studio** then claims the oldest pooled studio (FIFO): its
 owner is reassigned to the requesting user in the manager *before* the
 user is redirected to it, one reachability probe confirms it still
 serves, and the pool is topped back up in the background. When the pool

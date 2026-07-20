@@ -57,3 +57,16 @@ test('a re-added hostname goes to the back of the queue', async () => {
   assert.equal(await pool.take(), 'ozwell-studio-ffff0006');
   assert.equal(await pool.take(), 'ozwell-studio-eeee0005');
 });
+
+test('hostnames() reflects the current pool as a Set', async () => {
+  assert.deepEqual(await pool.hostnames(), new Set());
+  await pool.add('ozwell-studio-1111000a');
+  await pool.add('ozwell-studio-2222000b');
+  assert.deepEqual(
+    await pool.hostnames(),
+    new Set(['ozwell-studio-1111000a', 'ozwell-studio-2222000b'])
+  );
+  await pool.take();
+  assert.deepEqual(await pool.hostnames(), new Set(['ozwell-studio-2222000b']));
+  await pool.take();
+});

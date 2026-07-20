@@ -31,3 +31,13 @@ export async function take() {
 export function count() {
   return PooledStudio.count();
 }
+
+/**
+ * Hostnames currently waiting in the pool, as a Set. Used to mark pooled
+ * studios in listings: pool containers belong to the API key's user, so
+ * only that user's dashboard ever shows them.
+ */
+export async function hostnames() {
+  const rows = await PooledStudio.findAll({ attributes: ['hostname'] });
+  return new Set(rows.map((row) => row.hostname));
+}

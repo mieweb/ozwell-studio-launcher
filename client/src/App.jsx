@@ -50,6 +50,14 @@ function StudioRow({ studio, opening, onOpen }) {
         </span>
         <span className="flex shrink-0 items-center gap-2">
           {(studio.status === 'creating' || isOpening) && <Spinner size="sm" />}
+          {studio.pooled && (
+            <Badge
+              variant="secondary"
+              title="Pre-built studio waiting in the warm pool; it will be handed to the next user who asks for one"
+            >
+              pooled
+            </Badge>
+          )}
           <Badge variant={STATUS_BADGES[studio.status] ?? 'secondary'}>
             {studio.status}
           </Badge>

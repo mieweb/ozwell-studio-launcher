@@ -13,6 +13,7 @@
 import { config } from '../config.js';
 import * as manager from '../clients/manager.js';
 import { studioUrlFrom } from './naming.js';
+import * as pool from './pool.js';
 import provisioner from './provisioner.js';
 
 const templateRef = manager.normalizeDockerRef(config.template);
@@ -20,10 +21,13 @@ const templateRef = manager.normalizeDockerRef(config.template);
 /**
  * Merge the manager's container rows with in-flight provisioning entries
  * (a Map keyed by hostname) into the API's studio list: configured
- * template only, newest first, in-flight state folded in. Pure; exported
- * for tests.
+ * template only, newest first, in-flight state folded in. Studios whose
+ * hostname is in `pooled` (a Set) are flagged `pooled: true` — pool
+ * containers belong to the API key's user, so this only ever surfaces on
+ * that user's dashboard, distinguishing warm-pool stock from their own
+ * studios. Pure; exported for tests.
  */
-export function mergeStudios(rows, provisions) {
+export function mergeStudios(rows, provisions, pooled = new Set()) {
   const studios = rows
     .filter((c) => manager.normalizeDockerRef(c.template ?? '') === templateRef)
     .map((c) => ({
@@ -31,15 +35,22 @@ export function mergeStudios(rows, provisions) {
       status: provisions.get(c.hostname)?.status === 'creating' ? 'creating' : c.status,
       url: studioUrlFrom(c),
       createdAt: c.createdAt ?? null,
+      pooled: pooled.has(c.hostname),
     }))
     .sort((a, b) => (b.createdAt ?? '').localeCompare(a.createdAt ?? ''));
 
   // Fold in creates so fresh POSTs are visible even before the manager
-  // lists them.
+  // lists them. These are always user-requested, never pool stock.
   const known = new Set(studios.map((s) => s.hostname));
   for (const p of provisions.values()) {
     if (!known.has(p.hostname) && p.status === 'creating') {
-      studios.unshift({ hostname: p.hostname, status: 'creating', url: p.url, createdAt: null });
+      studios.unshift({
+        hostname: p.hostname,
+        status: 'creating',
+        url: p.url,
+        createdAt: null,
+        pooled: false,
+      });
     }
   }
   return studios;
@@ -47,9 +58,9 @@ export function mergeStudios(rows, provisions) {
 
 /** The user's studios, with any in-flight provisioning state folded in. */
 async function list(username) {
-  const rows = await manager.listContainers(username);
+  const [rows, pooled] = await Promise.all([manager.listContainers(username), pool.hostnames()]);
   const provisions = new Map(provisioner.inflight(username).map((p) => [p.hostname, p]));
-  return mergeStudios(rows, provisions);
+  return mergeStudios(rows, provisions, pooled);
 }
 
 /**

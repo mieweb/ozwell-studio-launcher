@@ -2,6 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
+process.env.SQL_URI = 'sqlite::memory:'; // service -> pool -> db
 process.env.TEMPLATE = 'ozwell-studio';
 process.env.HOSTNAME_PREFIX = 'ozwell-studio';
 process.env.EXTERNAL_DOMAIN = 'example.org';
@@ -73,6 +74,7 @@ test('folds in creates the manager does not list yet, newest on top', () => {
     status: 'creating',
     url: 'https://bbbb0002-studio.example.org/studio/',
     createdAt: null,
+    pooled: false,
   });
   assert.equal(studios.length, 2);
 });
@@ -91,4 +93,22 @@ test('derives URLs from the container service record', () => {
     }),
   ];
   assert.equal(mergeStudios(rows, new Map())[0].url, 'https://aaaa0001-studio.example.org/studio/');
+});
+
+test('flags studios whose hostname is in the pool, and only those', () => {
+  const rows = [row('ozwell-studio-aaaa0001'), row('ozwell-studio-bbbb0002')];
+  const pooled = new Set(['ozwell-studio-bbbb0002']);
+  const studios = mergeStudios(rows, new Map(), pooled);
+  assert.deepEqual(
+    studios.map((s) => [s.hostname, s.pooled]),
+    [
+      ['ozwell-studio-aaaa0001', false],
+      ['ozwell-studio-bbbb0002', true],
+    ]
+  );
+});
+
+test('pooled defaults to false for everything when no pool set is given', () => {
+  const studios = mergeStudios([row('ozwell-studio-aaaa0001')], new Map());
+  assert.equal(studios[0].pooled, false);
 });
