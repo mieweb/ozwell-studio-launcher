@@ -112,14 +112,41 @@ export async function createContainer(payload) {
 }
 
 /**
- * Update a container. Used to reassign ownership (`{ username }`) when a
- * pooled studio is claimed; like creates, changing the owner requires an
- * admin API key.
+ * The PUT body that reassigns a container's owner and changes nothing
+ * else. Exported for tests.
+ *
+ * COUPLING: the manager's container PUT is a full-replace form submit —
+ * omitting `environmentVars`/`entrypoint` CLEARS them on the record and
+ * enqueues a reconfigure that deletes them from the running container
+ * (`buildLxcEnvConfig({ deleteMissing: true })` in
+ * mieweb/opensource-server). Since creation snapshots the template
+ * image's ENV (e.g. ozwell-studio's EXTENSIONS_GALLERY) onto the record,
+ * a bare `{ username }` PUT would strip those from a claimed studio and
+ * restart it. Echoing the current values back keeps the record
+ * byte-identical, so the manager sees no env change and skips the
+ * reconfigure entirely.
  */
-export async function updateContainer(containerId, fields) {
-  return api(`/sites/${config.siteId}/containers/${containerId}`, {
+export function ownerReassignment(container, username) {
+  return {
+    username,
+    environmentVars: Object.entries(container.environmentVars ?? {}).map(([key, value]) => ({
+      key,
+      value,
+    })),
+    entrypoint: container.entrypoint ?? null,
+  };
+}
+
+/**
+ * Reassign a container to `username`, preserving its env/entrypoint (see
+ * ownerReassignment). Like creates, changing the owner requires an admin
+ * API key. `container` is the record from listContainers /
+ * getContainerByHostname.
+ */
+export async function reassignOwner(container, username) {
+  return api(`/sites/${config.siteId}/containers/${container.id}`, {
     method: 'PUT',
-    body: JSON.stringify(fields),
+    body: JSON.stringify(ownerReassignment(container, username)),
   });
 }
 

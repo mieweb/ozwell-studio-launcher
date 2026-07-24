@@ -32,9 +32,12 @@ list — except the key user's own dashboard, where warm-pool stock is
 marked with a `pooled` badge to distinguish it from their personal
 studios). **New Studio** then claims the oldest pooled studio (FIFO): its
 owner is reassigned to the requesting user in the manager *before* the
-user is redirected to it, one reachability probe confirms it still
-serves, and the pool is topped back up in the background. When the pool
-is empty, requests fall back to a fresh create.
+user is redirected to it (echoing the container's env/entrypoint back,
+since the manager's update is full-replace — a bare ownership PUT would
+strip the template's env vars, e.g. `EXTENSIONS_GALLERY`, and restart the
+container), one reachability probe confirms it still serves, and the
+pool is topped back up in the background. When the pool is empty,
+requests fall back to a fresh create.
 
 Pool state (just the hostnames) is stored in a Sequelize-backed database
 (`SQL_URI`) so it survives restarts; everything else about a container is

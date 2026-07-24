@@ -112,7 +112,9 @@ async function claimWorkflow(container, username, entry, log) {
   log.info(`assigning pooled studio ${container.hostname} to ${username}`);
   try {
     // Reassign the owner before the user is redirected to the studio.
-    await manager.updateContainer(container.id, { username });
+    // reassignOwner echoes the container's env/entrypoint so the manager's
+    // full-replace PUT doesn't strip template env (EXTENSIONS_GALLERY, ...).
+    await manager.reassignOwner(container, username);
   } catch (error) {
     // Ownership unchanged, so the studio is still good: back in the pool.
     await pool.add(container.hostname).catch(() => {});
