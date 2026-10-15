@@ -1,40 +1,60 @@
-/** All configuration comes from environment variables (and .env, if present). */
+/**
+ * All configuration comes from environment variables (and .env, if
+ * present). Every variable is documented in the README's Configuration
+ * table (the canonical reference) and in .env.example.
+ */
+import path from 'node:path';
+
 try {
   process.loadEnvFile(); // native Node .env support; real env vars still win
 } catch {
   // no .env file — that's fine
 }
 
-export const config = {
-  port: Number(process.env.PORT ?? 3000),
+/** Numeric env var: the default when unset, an error when not a number. */
+function num(name, fallback) {
+  const raw = process.env[name];
+  if (raw == null || raw.trim() === '') return fallback;
+  const value = Number(raw);
+  if (!Number.isFinite(value)) {
+    throw new Error(`${name} must be a number (got "${raw}")`);
+  }
+  return value;
+}
 
-  /** Pino log level: trace, debug, info, warn, error, fatal. */
-  logLevel: process.env.LOG_LEVEL ?? 'info',
-
-  /** Header set by the forward-auth proxy containing the username. */
-  userHeader: (process.env.USER_HEADER ?? 'remote-user').toLowerCase(),
-
-  /**
-   * Group-based access control, following oauth2-proxy's forward-auth
-   * convention: the proxy sends the user's groups in a comma-separated
-   * header (X-Forwarded-Groups). If AUTHORIZED_GROUPS is empty, any
-   * authenticated user is allowed.
-   */
-  userGroupHeader: (process.env.USER_GROUP_HEADER ?? 'x-forwarded-groups').toLowerCase(),
-  authorizedGroups: (process.env.AUTHORIZED_GROUPS ?? '')
-    .split(',')
-    .map((group) => group.trim())
-    .filter(Boolean),
-
-  /**
-   * IPs/CIDRs allowed to talk to this service (i.e. the forward-auth
-   * proxies whose headers we trust), e.g. "10.0.0.5, 192.168.0.0/16".
-   * Empty = accept connections from anywhere (headers taken on faith).
-   */
-  allowedProxies: (process.env.ALLOWED_PROXIES ?? '')
+/** Comma-separated env var as a trimmed list. */
+function csv(name) {
+  return (process.env[name] ?? '')
     .split(',')
     .map((entry) => entry.trim())
-    .filter(Boolean),
+    .filter(Boolean);
+}
+
+/**
+ * Database connection URI. Defaults to a SQLite file in systemd's
+ * $STATE_DIRECTORY (StateDirectory= directive), falling back to the
+ * working directory. Any Sequelize URI works (postgres://, mariadb://,
+ * ...) as long as the driver is installed; only sqlite is bundled.
+ */
+function defaultSqlUri() {
+  return `sqlite:${path.join(process.env.STATE_DIRECTORY ?? process.cwd(), 'db.sqlite')}`;
+}
+
+export const config = {
+  port: num('PORT', 3000),
+  logLevel: process.env.LOG_LEVEL ?? 'info',
+
+  /** Persistence (pool state). */
+  sqlUri: process.env.SQL_URI ?? defaultSqlUri(),
+
+  /** Pre-built studios to keep ready; 0 disables pooling. */
+  poolSize: num('POOL_SIZE', 0),
+
+  /** Forward-auth: identity headers and who we trust to send them. */
+  userHeader: (process.env.USER_HEADER ?? 'remote-user').toLowerCase(),
+  userGroupHeader: (process.env.USER_GROUP_HEADER ?? 'x-forwarded-groups').toLowerCase(),
+  authorizedGroups: csv('AUTHORIZED_GROUPS'), // empty = any authenticated user
+  allowedProxies: csv('ALLOWED_PROXIES'), // IPs/CIDRs; empty = trust anywhere
 
   /** Create-a-Container manager. */
   managerUrl: (process.env.MANAGER_URL ?? 'https://manager.os.mieweb.org').replace(/\/+$/, ''),
@@ -43,30 +63,16 @@ export const config = {
 
   /** Container settings. */
   template: process.env.TEMPLATE ?? 'ozwell-studio',
-  /** Set to '' to register containers under the bare hash. */
-  hostnamePrefix: process.env.HOSTNAME_PREFIX ?? 'ozwell-studio',
-  hashLength: Number(process.env.HASH_LENGTH ?? 12),
+  hostnamePrefix: process.env.HOSTNAME_PREFIX ?? 'ozwell-studio', // '' = bare random id
 
-  /**
-   * External domain the container's HTTP services are published under:
-   *   https://{hostname}.{EXTERNAL_DOMAIN}         -> APP_PORT
-   *   https://{hostname}-studio.{EXTERNAL_DOMAIN}  -> STUDIO_PORT
-   * Users are redirected to the -studio one. Must match an external domain
-   * configured in the manager.
-   */
+  /** Where the container's HTTP services are published. */
   externalDomain: process.env.EXTERNAL_DOMAIN ?? 'os.mieweb.org',
   externalScheme: process.env.EXTERNAL_SCHEME ?? 'https',
-
-  /**
-   * Path users land on within the studio service. The ozwell-studio
-   * template serves the UI at /studio/ and only redirects `/` there for
-   * document requests, so link straight to it instead of relying on that.
-   */
   studioPath: process.env.STUDIO_PATH ?? '/studio/',
-  appPort: Number(process.env.APP_PORT ?? 3000),
-  studioPort: Number(process.env.STUDIO_PORT ?? 6080),
+  appPort: num('APP_PORT', 3000),
+  studioPort: num('STUDIO_PORT', 6080),
 
   /** Job polling. */
-  pollIntervalMs: Number(process.env.POLL_INTERVAL_MS ?? 3000),
-  provisionTimeoutMs: Number(process.env.PROVISION_TIMEOUT_MS ?? 600_000),
+  pollIntervalMs: num('POLL_INTERVAL_MS', 3000),
+  provisionTimeoutMs: num('PROVISION_TIMEOUT_MS', 600_000),
 };
